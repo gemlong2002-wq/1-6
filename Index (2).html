@@ -22,7 +22,7 @@
 
     <script type="text/babel">
         // ==========================================
-        // CONFIGURATION: 填入你的 GAS 網頁應用程式 URL
+        // CONFIGURATION: 已注入你的專屬 GAS URL
         // ==========================================
         const API_URL = "https://script.google.com/macros/s/AKfycbxEEGI9X2nF9nZkjfV0vGx-8zzfZI7TkjqtjzIbnhPBxeHO_ZPoOnvqYSEDwmLGwADo/exec";
 
@@ -30,6 +30,7 @@
             const [auth, setAuth] = React.useState(false);
             const [passcode, setPasscode] = React.useState('');
             const [loading, setLoading] = React.useState(true);
+            const [sysError, setSysError] = React.useState(null);
             const [data, setData] = React.useState(null);
             const [editMode, setEditMode] = React.useState(false);
             const [localP1, setLocalP1] = React.useState(0);
@@ -41,36 +42,49 @@
 
             const fetchData = async () => {
                 try {
+                    if (!API_URL) throw new Error("API_URL 遺失！");
+
                     const res = await fetch(API_URL, {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                         body: JSON.stringify({ action: 'getDashboardData' }),
                         redirect: 'follow'
                     });
+                    
+                    if (!res.ok) throw new Error(`通訊協定異常 / HTTP STATUS ERROR: ${res.status}`);
+                    
                     const result = await res.json();
+                    if (result.error) throw new Error(`後端核心錯誤 / BACKEND ERROR: ${result.error}`);
+
                     setData(result);
                     setLocalP1(result.p1Amount);
                     setLocalCash(result.cashPool);
                     setLoading(false);
                 } catch (e) {
                     console.error("SYS ERR: ", e);
+                    setSysError(e.message);
+                    setLoading(false);
                 }
             };
 
             const handleLogin = async () => {
-                const res = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify({ action: 'checkAuth', passcode }),
-                    redirect: 'follow'
-                });
-                const result = await res.json();
-                if (result.valid) setAuth(true);
-                else alert("ACCESS DENIED");
+                try {
+                    const res = await fetch(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify({ action: 'checkAuth', passcode }),
+                        redirect: 'follow'
+                    });
+                    const result = await res.json();
+                    if (result.valid) setAuth(true);
+                    else alert("拒絕存取 / ACCESS DENIED");
+                } catch (e) {
+                    alert("驗證通訊失敗 / AUTH SYNC FAILED");
+                }
             };
 
             const handleUpdate = async () => {
-                // 0ms Optimistic UI Update
+                // 0ms Optimistic UI Update (樂觀更新引擎)
                 const prevData = { ...data };
                 setData(prev => ({ ...prev, p1Amount: Number(localP1), cashPool: Number(localCash) }));
                 setEditMode(false);
@@ -85,10 +99,26 @@
                     const result = await res.json();
                     if(result.error) throw new Error(result.error);
                 } catch (e) {
-                    alert("SYNC FAILED. ROLLBACK INITIATED.");
-                    setData(prevData); // Rollback
+                    alert("同步失敗，狀態回滾 / SYNC FAILED. ROLLBACK INITIATED.");
+                    setData(prevData); // 觸發回滾
+                    setLocalP1(prevData.p1Amount);
+                    setLocalCash(prevData.cashPool);
                 }
             };
+
+            // 致命錯誤攔截面板 (防白屏機制)
+            if (sysError) {
+                return (
+                    <div className="max-w-7xl mx-auto pt-20 text-center space-y-6">
+                        <h1 className="text-5xl md:text-7xl font-black text-red-500 glitch-text">SYSTEM FAILURE</h1>
+                        <p className="text-2xl font-bold text-gray-400">系統啟動失敗</p>
+                        <div className="cyber-border bg-[#111] p-6 inline-block text-left text-red-400 font-bold text-xl mt-8">
+                            <p>偵測到物理極限 / ERROR LOG:</p>
+                            <p className="mt-2 text-white">{sysError}</p>
+                        </div>
+                    </div>
+                );
+            }
 
             if (loading) return <h1 className="text-5xl glitch-text text-red-500 mt-20 text-center">INITIALIZING FOS v11.6...</h1>;
 
